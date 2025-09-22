@@ -34,7 +34,7 @@ class HybridSimulator:
         self.G.add_edge(from_node, to_node, guard=guard, reset=reset)
         
 
-    def simulate(self, x0, mode0, tf, max_step=1e-3):
+    def simulate(self, x0, mode0, tf, max_step=1e-5):
         """Simulate the hybrid system.
         
         Args:
@@ -60,7 +60,7 @@ class HybridSimulator:
             next_possible_modes = [v for _, v, _ in edges]
             
             def make_event(fn):
-                def event(t, y): return fn(t, y)
+                def event(t, q, u=None): return fn(t, q, u)
                 event.terminal = True
                 event.direction = 0
                 return event
@@ -120,32 +120,37 @@ def flight_dyn(t, q):
 
 def stance_dyn(t, q):
     x, xd = q
-    F = 1.0
+    F = 0.0
     return np.array([xd, -g + F/m])
 
 # ----------------------
 # Guards
 # ----------------------
-def guard_touchdown(t, q):
+def guard_touchdown(t, q, u=None):
     x, xd = q
     return x - (xg + l_fixed)
 guard_touchdown.direction = -1
 
-def guard_liftoff(t, q):
+def guard_liftoff(t, q, u):
     x, xd = q
-    return x - (xg + l_fixed)
+    # return x - (xg + l_fixed)
+    # return u
+    return x - l_fixed
 guard_liftoff.direction = 1
 
 # ----------------------
 # Resets
 # ----------------------
-def reset_touchdown(x, t):
-    z, zd = x
-    return np.array([z, -e*zd])
+def reset_touchdown(q, t):
+    x, xd = q
+
+    e = 0.5
+    return np.array([x, -e*xd])
+    # return np.array([x, 0])
 
 def reset_liftoff(q, t):
-    x = q
-    x[1] = 10.0
+    x, xd = q
+    # x[1] = 10.0
     
     return x
 
@@ -158,15 +163,14 @@ G.add_node("stance", dynamics=stance_dyn)
 
 
 G.add_edge("flight", "stance", guard=guard_touchdown, reset=reset_touchdown)
-G.add_edge("stance", "flight", guard=guard_liftoff, reset=reset_liftoff)
+# G.add_edge("stance", "flight", guard=guard_liftoff, reset=reset_liftoff)
 
 # ----------------------
 # Simulate
 # ----------------------
 sim = HybridSimulator(G)
-x0 = [0.65, -0.5]   # initial height and velocity
+x0 = [1.0, 0.0]   # initial height and velocity
 T, X, M = sim.simulate(x0, "flight", tf=1.0)
-
 
 print(T)
 print(X)
@@ -177,12 +181,24 @@ print(M)
 # ----------------------
 plt.figure(figsize=(10,5))
 plt.plot(T, X[:,0], label="Mass height z(t)")
-plt.plot(T, [l(t)+xg for t in T], "--", label="Leg tip z_leg(t)")
 
-# Shade stance mode
-for i in range(len(M)-1):
-    if M[i] == "stance":
-        plt.axvspan(T[i], T[i+1], color='orange', alpha=0.2)
+# Shade stance mode as contiguous intervals
+stance_intervals = []
+in_stance = False
+start_idx = None
+for i in range(len(M)):
+    if M[i] == "stance" and not in_stance:
+        in_stance = True
+        start_idx = i
+    elif M[i] != "stance" and in_stance:
+        in_stance = False
+        stance_intervals.append((start_idx, i))
+
+# Handle case where last mode is stance
+if in_stance:
+    stance_intervals.append((start_idx, len(M)-1))
+for start, end in stance_intervals:
+    plt.axvspan(T[start], T[end], color='orange', alpha=0.2)
 
 plt.xlabel("Time [s]")
 plt.ylabel("Height [m]")
