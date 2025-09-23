@@ -15,6 +15,9 @@ class HybridSimulator:
             G = nx.DiGraph()
         self.G = G
         
+        self.nq = 1  # Number of position states
+        self.nv = 1  # Number of velocity states
+        self.nu = 1  # Number of control inputs
     
 
     def add_mode(self, id, dynamics):
@@ -36,7 +39,23 @@ class HybridSimulator:
             reset (callable): Function that resets state upon transition
         """
         self.G.add_edge(from_node, to_node, guard=guard, reset=reset)
-        
+    
+    def compute_block_matrix_inverse(self, x, contact_mode):
+        q = x[:self.nq]
+        v = x[self.nq:self.nq+self.nv]
+        u = x[self.nq+self.nv:self.nq+self.nv+self.nu]
+
+
+        # Compute the block matrix inverse here
+        A = self.computeA(q, contact_mode)
+
+        c = A.shape[0]  # Number of constraints
+        M = np.eye(self.nq + self.nv)
+
+        block_matrix_inv = np.linalg.inv(np.array([[M, A.T], 
+                                     [A, np.zeros((c, c))]]).inv)
+
+        return np.linalg.inv(block_matrix_inv)
 
     def simulate(self, x0, mode0, tf, max_step=1e-5):
         """Simulate the hybrid system.
@@ -105,6 +124,17 @@ class HybridSimulator:
     def solve_EOM(self, x, contact_mode):
         if contact_mode not in self.G.nodes:
             raise ValueError(f"Dynamics are not defined for contact mode: {contact_mode}")
+        
+        q = x[:self.nq]
+        dq = x[self.nq:self.nq+self.nv]
+
+        A = self.computeA(q, contact_mode)
+
+    def computeA(self, q, mode):
+        """
+        Returns the constraint Jacobian A for the given mode.
+        """
+        return self.G.nodes[mode]['A']
 
 # ----------------------
 # Hopper parameters
@@ -115,6 +145,11 @@ e = 0.0  # restitution
 m = 1.0
 l_fixed = 0.5
 
+
+# For the hybrid system, define:
+# Modes
+# Discrete time dynamics x_kp1 = f(x_k, u_k) for each mode
+# Constraints a(x) = 0 for each mode (by extension, the Jacobian A = da/dq and dA = dA/dt)
 
 # Dynamics
 # ----------------------
