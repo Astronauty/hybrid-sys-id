@@ -120,7 +120,16 @@ def flight_dyn(t, q):
 
 def stance_dyn(t, q):
     x, xd = q
-    F = 0.0
+    F = 20.0
+    
+    x_constrained = xg + l_fixed
+    xd_constrained = 0.0
+    
+    # The acceleration is also constrained to be zero
+    xdd_constrained = 0.0
+    
+    return np.array([xd_constrained, xdd_constrained])
+
     return np.array([xd, -g + F/m])
 
 # ----------------------
