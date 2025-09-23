@@ -3,6 +3,8 @@ import networkx as nx
 from scipy.integrate import solve_ivp
 import matplotlib.pyplot as plt
 
+
+
 class HybridSimulator:
     def __init__(self, G=None):
         """
@@ -12,6 +14,8 @@ class HybridSimulator:
         if G is None:
             G = nx.DiGraph()
         self.G = G
+        
+    
 
     def add_mode(self, id, dynamics):
         """Add a mode to the hybrid system.
@@ -91,10 +95,17 @@ class HybridSimulator:
                 M.append(mode)
                 
         return np.array(T), np.vstack(X), M
-            
-            
-            
-            
+    
+
+    def complementary_FA(x):
+        q = np.array([x[0], x[1], 0.0])
+        return q
+    
+    
+    def solve_EOM(self, x, contact_mode):
+        if contact_mode not in self.G.nodes:
+            raise ValueError(f"Dynamics are not defined for contact mode: {contact_mode}")
+
 # ----------------------
 # Hopper parameters
 # ----------------------
@@ -104,33 +115,38 @@ e = 0.0  # restitution
 m = 1.0
 l_fixed = 0.5
 
-# commanded leg length trajectory
-def l(t):     
-    return 0.4 + 0.1*np.sin(2*np.pi*1.0*t)
 
-def ldot(t):  
-    return 0.1*2*np.pi*1.0*np.cos(2*np.pi*1.0*t)
-
-# ----------------------
 # Dynamics
 # ----------------------
 def flight_dyn(t, q):
     x, xd = q
     return np.array([xd, -g])
 
-def stance_dyn(t, q):
-    x, xd = q
+def stance_dyn(t, x):
+    q, dq = x
     F = 20.0
     
-    x_constrained = xg + l_fixed
-    xd_constrained = 0.0
     
+    a = np.array(q - (xg+l_fixed))
+    A = np.array([1.0]) # Jacobian of constraint
+    dA = np.array([0.0])
+
+    
+    
+
     # The acceleration is also constrained to be zero
     xdd_constrained = 0.0
     
     return np.array([xd_constrained, xdd_constrained])
 
     return np.array([xd, -g + F/m])
+
+# -----------------------
+# Constraint Functions
+# -----------------------
+# def computeA(x)
+
+
 
 # ----------------------
 # Guards
