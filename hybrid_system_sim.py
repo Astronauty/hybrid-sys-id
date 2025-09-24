@@ -1,8 +1,10 @@
 import numpy as np
+
 import networkx as nx
 from scipy.integrate import solve_ivp
 import matplotlib.pyplot as plt
-
+import jax.numpy as jnp
+from jax import jacfwd
 
 
 class HybridSimulator:
@@ -14,11 +16,18 @@ class HybridSimulator:
         if G is None:
             G = nx.DiGraph()
         self.G = G
-        
+
+        ### Based on the constraints a(q), compute the constraint Jacobian A = da/dq and dA = dA/dt for each mode
+
         self.nq = 1  # Number of position states
         self.nv = 1  # Number of velocity states
         self.nu = 1  # Number of control inputs
-    
+
+        self.M = [1.0]
+        self.N = np.array([[0.0], [9.81]])
+        self.C = np.array([[0.0]])
+        self.Y = np.array([[1.0]])
+
 
     def add_mode(self, id, dynamics):
         """Add a mode to the hybrid system.
@@ -100,6 +109,11 @@ class HybridSimulator:
                 
             t, x = sol.t[-1], sol.y[:, -1] # Get the last timestep of the continuous ode
             
+            # Find the contact mode we transition into via IV complementarity
+
+
+
+
             guard_triggered = [i for i, e in enumerate(sol.t_events) if len(e) > 0] # i corresponds to the event index with the mode we should switch into
             
             if guard_triggered:
@@ -115,6 +129,70 @@ class HybridSimulator:
                 
         return np.array(T), np.vstack(X), M
     
+    def complementary_IV(self, x):
+        # q = x[:self.nq]
+        # dq = x[self.nq:self.nq+self.nv]
+
+        # a = np.array([a for _, a in self.G.nodes(data='a') if a is not None]).reshape(-1, 1)
+        # a_eval = np.array([a(q) for a in a]).reshape(-1, 1)
+
+        # # Constraint functions that are 0
+        # possible_modes = np.array(abs(a_eval) < 1e-6)
+        # K = np.where(possible_modes)[0]
+
+        # modes = list(self.G.nodes)
+
+        # for J in K:
+        
+        # Identify modes where the constraint is active
+        possible_new_modes = []
+
+        for mode in self.G.nodes:
+            a = self.G.nodes[mode]['a']
+            a_eval = a(x[:self.nq])
+
+            active_con = np.where(abs(a_eval) < 1e-6)[0]
+
+    
+            if len(active_con) > 0:
+                continue
+
+            dq_p, p_hat = self.compute_reset_map(x, mode)
+
+            dq_p_union, p_hat_union = self.compute_reset_map(x, possible_new_modes)
+
+            cond_1 = np.all(p_hat >= 0)  # Non-negative impulses
+            cond_2 = np.all(-p_hat)
+
+
+    def compute_reset_map(self, x, contact_mode):
+        q = x[:self.nq]
+        dq = x[self.nq:self.nq+self.nv]
+
+        A = self.compute_A(q, contact_mode)
+        dA = self.compute_dA(contact_mode)
+
+        c = A.shape[0]
+
+        N = self.N
+        M = self.M
+        C = self.C
+        Y = self.Y
+
+        block_matrix_inv = self.compute_block_matrix_inverse(x, contact_mode)
+
+
+        # TODO handle different restitution coefficients for different contacts
+        e = 0.5  # Coefficient of restitution
+        sol = block_matrix_inv @ np.array([[M @ dq],
+                                            [-e * A @ dq]])
+
+        dq_p = sol[:self.nv] # Post-impact velocities
+        p_hat = sol[self.nv:self.nv+c] # Lagrange multipliers (impulse)
+
+        return dq_p, p_hat
+        
+        
 
     def complementary_FA(x):
         q = np.array([x[0], x[1], 0.0])
@@ -122,19 +200,52 @@ class HybridSimulator:
     
     
     def solve_EOM(self, x, contact_mode):
+        
         if contact_mode not in self.G.nodes:
             raise ValueError(f"Dynamics are not defined for contact mode: {contact_mode}")
         
         q = x[:self.nq]
         dq = x[self.nq:self.nq+self.nv]
 
-        A = self.computeA(q, contact_mode)
+        A = self.compute_A(q, contact_mode)
+        dA = self.compute_dA(contact_mode)
 
-    def computeA(self, q, mode):
+        c = A.shape[0]
+
+        N = self.N
+        M = self.M
+        C = self.C
+        Y = self.Y
+
+        block_matrix_inv = self.compute_block_matrix_inverse(x, contact_mode)
+        sol = block_matrix_inv @ np.array([[Y - N - C @ dq],
+                                            [-dA @ dq]])
+
+        ddq = sol[:self.nv] # Accelerations
+        lam = sol[self.nv:self.nv+c] # Lagrange multipliers (constraint forces)
+
+        return ddq, lam
+    
+    def compute_A(self, q, mode):
         """
         Returns the constraint Jacobian A for the given mode.
         """
-        return self.G.nodes[mode]['A']
+        a = self.G.nodes[mode]['a']
+        A = jacfwd(a)(q)
+        return A
+    
+    def compute_dA(self, x, mode):
+        """
+        Returns the time derivative of the constraint Jacobian dA for the given mode.
+        """
+        q = x[:self.nq]
+        dq = x[self.nq:self.nq+self.nv]
+
+        a = self.G.nodes[mode]['a']
+        A = jacfwd(a)(q)
+
+        dA = jnp.dot(jacfwd(A)(q), dq) # dA/dt = dA/dq *dq/dt
+        return dA
 
 # ----------------------
 # Hopper parameters
@@ -166,14 +277,6 @@ def stance_dyn(t, x):
     A = np.array([1.0]) # Jacobian of constraint
     dA = np.array([0.0])
 
-    
-    
-
-    # The acceleration is also constrained to be zero
-    xdd_constrained = 0.0
-    
-    return np.array([xd_constrained, xdd_constrained])
-
     return np.array([xd, -g + F/m])
 
 # -----------------------
@@ -181,7 +284,9 @@ def stance_dyn(t, x):
 # -----------------------
 # def computeA(x)
 
-
+def ground_constraint(x):
+    q = x[0]
+    return q - (xg + l_fixed)
 
 # ----------------------
 # Guards
@@ -218,8 +323,8 @@ def reset_liftoff(q, t):
 # Build graph
 # ----------------------
 G = nx.DiGraph()
-G.add_node("flight", dynamics=flight_dyn)
-G.add_node("stance", dynamics=stance_dyn)
+G.add_node("flight", dynamics=flight_dyn, a=None)
+G.add_node("stance", dynamics=stance_dyn, a=ground_constraint)
 
 
 G.add_edge("flight", "stance", guard=guard_touchdown, reset=reset_touchdown)
