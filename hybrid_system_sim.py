@@ -130,8 +130,8 @@ class HybridSimulator:
         return np.array(T), np.vstack(X), M
     
     def complementary_IV(self, x):
-        # q = x[:self.nq]
-        # dq = x[self.nq:self.nq+self.nv]
+        q = x[:self.nq]
+        dq = x[self.nq:self.nq+self.nv]
 
         # a = np.array([a for _, a in self.G.nodes(data='a') if a is not None]).reshape(-1, 1)
         # a_eval = np.array([a(q) for a in a]).reshape(-1, 1)
@@ -149,7 +149,7 @@ class HybridSimulator:
 
         for mode in self.G.nodes:
             a = self.G.nodes[mode]['a']
-            a_eval = a(x[:self.nq])
+            a_eval = a(q)
 
             active_con = np.where(abs(a_eval) < 1e-6)[0]
 
@@ -164,6 +164,26 @@ class HybridSimulator:
             cond_1 = np.all(p_hat >= 0)  # Non-negative impulses
             cond_2 = np.all(-p_hat)
 
+    def complementary_FA(self, x):
+        q = x[:self.nq]
+        dq = x[self.nq:self.nq+self.nv]
+        
+        # Find possible modes to transition into (constraints that are active)
+        possible_new_modes = [mode for mode in self.G.nodes if np.all(np.abs(self.G.nodes[mode]['a'](q)) < 1e-6)]
+        
+        for mode in self.G.nodes:
+            a = self.G.nodes[mode]['a']
+            a_eval = a(q)
+            
+            ddq, lam = self.solve_EOM(x, mode)
+            ddq_union, lam_union =   self.solve_EOM(x, possible_new_modes)
+            
+        
+        
+        # 
+        
+        
+        return
 
     def compute_reset_map(self, x, contact_mode):
         q = x[:self.nq]
