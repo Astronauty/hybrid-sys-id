@@ -172,11 +172,14 @@ class HybridSimulator:
         possible_new_modes = [mode for mode in self.G.nodes if np.all(np.abs(self.G.nodes[mode]['a'](q)) < 1e-6)]
         
         for mode in self.G.nodes:
-            a = self.G.nodes[mode]['a']
-            a_eval = a(q)
+            # a = self.G.nodes[mode]['a']
+            # a_eval = a(q)
+
+            not_mode = np.setdiff1d(possible_new_modes, [mode]) # Possible new modes that are not the current one we loop on
             
-            ddq, lam = self.solve_EOM(x, mode)
-            ddq_union, lam_union =   self.solve_EOM(x, possible_new_modes)
+            if mode in possible_new_modes:
+                ddq, lam = self.solve_EOM(x, mode)
+                ddq_union, lam_union =   self.solve_EOM(x, possible_new_modes)
             
         
         
