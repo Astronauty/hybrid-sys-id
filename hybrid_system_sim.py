@@ -5,6 +5,7 @@ from scipy.integrate import solve_ivp
 import matplotlib.pyplot as plt
 import jax.numpy as jnp
 from jax import jacfwd
+from functools import partial
 
 
 class HybridSimulator:
@@ -16,6 +17,25 @@ class HybridSimulator:
         if G is None:
             G = nx.DiGraph()
         self.G = G
+ 
+        # Define constraint functions (maps int to contact function)
+        self.contact_functions = {1: ground_constraint} 
+
+        # Candidate contact modes (tuples of active contacts described by int)
+        modes = [(), (1,)]
+        for mode in modes:
+            G.add_node(mode)
+            G.nodes[mode]['a'] = [self.contact_functions[i] for i in mode]
+
+
+        # Dynamics for each mode
+        self.G.nodes[()]['dynamics'] = flight_dyn
+        self.G.nodes[(1,)]['dynamics'] = stance_dyn
+
+        # Possible transitions
+        self.G.add_edge((), (1,), a=ground_constraint)
+
+        print(G.nodes(data=True))
 
         ### Based on the constraints a(q), compute the constraint Jacobian A = da/dq and dA = dA/dt for each mode
 
@@ -29,25 +49,25 @@ class HybridSimulator:
         self.Y = np.array([[1.0]])
 
 
-    def add_mode(self, id, dynamics):
-        """Add a mode to the hybrid system.
+    # def add_mode(self, id, dynamics)e:
+        # """Add a mode to the hybrid system.
         
-        Args:
-            id (str): Unique identifier for the mode
-            dynamics (callable): Function representing the mode's dynamics
-        """
-        self.G.add_node(id, dynamics=dynamics)
+        # Args:
+        #     id (str): Unique identifier for the mode
+        #     dynamics (callable): Function representing the mode's dynamics
+        # """
+        # self.G.add_node(id, dynamics=dynamics)
     
-    def add_transition(self, from_node, to_node, guard, reset):
-        """Add a transition between modes.
+    # def add_transition(self, from_node, to_node, guard, reset):
+    #     """Add a transition between modes.
         
-        Args:
-            from_node (str): ID of the source mode
-            to_node (str): ID of the target mode
-            guard (callable): Function that returns True if transition can occur
-            reset (callable): Function that resets state upon transition
-        """
-        self.G.add_edge(from_node, to_node, guard=guard, reset=reset)
+    #     Args:
+    #         from_node (str): ID of the source mode
+    #         to_node (str): ID of the target mode
+    #         guard (callable): Function that returns True if transition can occur
+    #         reset (callable): Function that resets state upon transition
+    #     """
+    #     self.G.add_edge(from_node, to_node, guard=guard, reset=reset)
     
     def compute_block_matrix_inverse(self, x, contact_mode):
         q = x[:self.nq]
@@ -56,7 +76,7 @@ class HybridSimulator:
 
 
         # Compute the block matrix inverse here
-        A = self.computeA(q, contact_mode)
+        A = self.compute_A(q, contact_mode)
 
         c = A.shape[0]  # Number of constraints
         M = np.eye(self.nq + self.nv)
@@ -85,19 +105,14 @@ class HybridSimulator:
         while t < tf:
             f = self.G.nodes[mode]['dynamics']
             
+            # Define guards from the current mode
+            events = []
             edges = list(self.G.out_edges(mode, data=True))
-            guards = [edata["guard"] for _, _, edata in edges]
-            # resets = [edata["reset"] for _, _, edata in edges]
-            
-            next_possible_modes = [v for _, v, _ in edges]
-            
-            def make_event(fn):
-                def event(t, q, u=None): return fn(t, q, u)
-                event.terminal = True
-                event.direction = 0
-                return event
-                
-            events = [make_event(fn) for fn in guards]
+            for _, _, edata in edges:
+                event_fn = lambda t, x, mode=mode: self.guard_functions(t, x, mode)
+                event_fn.terminal = True
+                event_fn.direction = 0  # or set as needed
+                events.append(event_fn)
             
             sol = solve_ivp(f, (t, tf), x, method='RK45', events=events, max_step=max_step)
             
@@ -109,23 +124,27 @@ class HybridSimulator:
                 
             t, x = sol.t[-1], sol.y[:, -1] # Get the last timestep of the continuous ode
             
+            print(sol.t_events)
             # Find the contact mode we transition into via IV complementarity
-
-
-
-
-            guard_triggered = [i for i, e in enumerate(sol.t_events) if len(e) > 0] # i corresponds to the event index with the mode we should switch into
+            # if np.any():  # Did an event occur on a contact that is not active?
+                # Determine transition contact mode via IV complementarity if we have a new active constraint
             
-            if guard_triggered:
-                idx = guard_triggered[0]
-                next_mode = next_possible_modes[idx]
-                reset = edges[idx][2]['reset']
-                x = reset(x, t) # Apply reset map
-                mode = next_mode
+
+            # Check FA complementarity to see if there is liftoff
+
+
+            # guard_triggered = [i for i, e in enumerate(sol.t_events) if len(e) > 0] # i corresponds to the event index with the mode we should switch into
+            
+            # if guard_triggered:
+            #     idx = guard_triggered[0]
+            #     next_mode = next_possible_modes[idx]
+            #     reset = edges[idx][2]['reset']
+            #     x = reset(x, t) # Apply reset map
+            #     mode = next_mode
                 
-                T.append(t)
-                X.append(x)
-                M.append(mode)
+            #     T.append(t)
+            #     X.append(x)
+            #     M.append(mode)
                 
         return np.array(T), np.vstack(X), M
     
@@ -181,9 +200,14 @@ class HybridSimulator:
             
             if mode in possible_new_modes:
                 ddq, lam = self.solve_EOM(x, mode)
+
                 ddq_union, lam_union =   self.solve_EOM(x, possible_new_modes)
 
-                
+                cond_1 = np.all(-lam >= 0)
+                cond_2 = np.all(-lam_union(not_mode) <= 0)
+
+                if cond_1 and cond_2:
+                    return mode # Returns new mode that satisfies FA complementarity
             else:
                 continue
             
@@ -199,7 +223,7 @@ class HybridSimulator:
         dq = x[self.nq:self.nq+self.nv]
 
         A = self.compute_A(q, contact_mode)
-        dA = self.compute_dA(contact_mode)
+        dA = self.compute_dA(q, contact_mode)
 
         c = A.shape[0]
 
@@ -221,7 +245,28 @@ class HybridSimulator:
 
         return dq_p, p_hat
         
-        
+    def guard_functions(self, t, x, contact_mode):
+
+        q = x[:self.nq]
+        dq = x[self.nq:self.nq+self.nv]
+
+        a = self.G.nodes[contact_mode]['a']
+        if a is None:
+            a_eval = np.array([])
+        else:
+            a_eval = np.array([fn(q) for fn in a])
+
+        ddq, lam = self.solve_EOM(x, contact_mode)
+
+        ## TODO: assumes 1D impulse
+        constraint_fcns = [a_eval, lam]
+        return constraint_fcns
+
+        # is_terminal = np.ones(len(constraint_fcns), 1)
+        # direction = [[-np.ones(len(a), 1)], [np.ones(len(lam), 1)]]
+        # return constraint_fcns, is_terminal, direction
+
+
 
     def complementary_FA(x):
         q = np.array([x[0], x[1], 0.0])
@@ -237,7 +282,7 @@ class HybridSimulator:
         dq = x[self.nq:self.nq+self.nv]
 
         A = self.compute_A(q, contact_mode)
-        dA = self.compute_dA(contact_mode)
+        dA = self.compute_dA(q, contact_mode)
 
         c = A.shape[0]
 
@@ -259,8 +304,17 @@ class HybridSimulator:
         """
         Returns the constraint Jacobian A for the given mode.
         """
-        a = self.G.nodes[mode]['a']
-        A = jacfwd(a)(q)
+        # a = self.G.nodes[mode]['a'] #
+        a = self.contact_functions.values()
+
+
+
+        if len(a) == 0:
+            A = jnp.empty((0, self.nq))
+            return A
+        else:
+            A = jacfwd(a)(q)
+
         return A
     
     def compute_dA(self, x, mode):
@@ -271,7 +325,13 @@ class HybridSimulator:
         dq = x[self.nq:self.nq+self.nv]
 
         a = self.G.nodes[mode]['a']
-        A = jacfwd(a)(q)
+        a = self.contact_functions.values()
+
+        if len(a) == 0:
+            dA = jnp.empty((0, self.nq))
+            return dA
+        else:
+            A = jacfwd(a)(q)
 
         dA = jnp.dot(jacfwd(A)(q), dq) # dA/dt = dA/dq *dq/dt
         return dA
@@ -283,7 +343,7 @@ g = 9.81
 xg = 0.0
 e = 0.0  # restitution
 m = 1.0
-l_fixed = 0.5
+l = 0.5
 
 
 # For the hybrid system, define:
@@ -293,20 +353,17 @@ l_fixed = 0.5
 
 # Dynamics
 # ----------------------
-def flight_dyn(t, q):
-    x, xd = q
-    return np.array([xd, -g])
+def flight_dyn(t, x):
+    q = x[0]
+    qd = x[1]
+    return np.array([qd, -g])
 
 def stance_dyn(t, x):
-    q, dq = x
-    F = 20.0
-    
-    
-    a = np.array(q - (xg+l_fixed))
-    A = np.array([1.0]) # Jacobian of constraint
-    dA = np.array([0.0])
-
-    return np.array([xd, -g + F/m])
+    q = x[0]
+    qd = x[1]
+    k = 1.0
+    m = 1.0
+    return np.array([qd, -(q - l)*k/m])
 
 # -----------------------
 # Constraint Functions
@@ -315,56 +372,56 @@ def stance_dyn(t, x):
 
 def ground_constraint(x):
     q = x[0]
-    return q - (xg + l_fixed)
+    return q - l
 
 # ----------------------
 # Guards
 # ----------------------
 def guard_touchdown(t, q, u=None):
     x, xd = q
-    return x - (xg + l_fixed)
+    return x - l
 guard_touchdown.direction = -1
 
-def guard_liftoff(t, q, u):
-    x, xd = q
-    # return x - (xg + l_fixed)
-    # return u
-    return x - l_fixed
-guard_liftoff.direction = 1
+# def guard_liftoff(t, q, u):
+#     x, xd = q
+#     # return x - (xg + l_fixed)
+#     # return u
+#     return x - l_fixed
+# guard_liftoff.direction = 1
 
 # ----------------------
 # Resets
 # ----------------------
-def reset_touchdown(q, t):
-    x, xd = q
+# def reset_touchdown(q, t):
+#     x, xd = q
 
-    e = 0.5
-    return np.array([x, -e*xd])
-    # return np.array([x, 0])
+#     e = 0.5
+#     return np.array([x, -e*xd])
+#     # return np.array([x, 0])
 
-def reset_liftoff(q, t):
-    x, xd = q
-    # x[1] = 10.0
+# def reset_liftoff(q, t):
+#     x, xd = q
+#     # x[1] = 10.0
     
-    return x
+#     return x
 
 # ----------------------
 # Build graph
 # ----------------------
 G = nx.DiGraph()
-G.add_node("flight", dynamics=flight_dyn, a=None)
-G.add_node("stance", dynamics=stance_dyn, a=ground_constraint)
+# G.add_node("flight", dynamics=flight_dyn, a=None)
+# G.add_node("stance", dynamics=stance_dyn, a=ground_constraint)
 
 
-G.add_edge("flight", "stance", guard=guard_touchdown, reset=reset_touchdown)
+# G.add_edge("flight", "stance", guard=guard_touchdown, a=ground_constraint)
 # G.add_edge("stance", "flight", guard=guard_liftoff, reset=reset_liftoff)
 
 # ----------------------
 # Simulate
 # ----------------------
-sim = HybridSimulator(G)
+sim = HybridSimulator()
 x0 = [1.0, 0.0]   # initial height and velocity
-T, X, M = sim.simulate(x0, "flight", tf=1.0)
+T, X, M = sim.simulate(x0, (), tf=1.0)
 
 print(T)
 print(X)
