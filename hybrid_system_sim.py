@@ -167,7 +167,9 @@ class HybridSimulator:
     def complementary_FA(self, x):
         q = x[:self.nq]
         dq = x[self.nq:self.nq+self.nv]
-        
+
+        modes = list(self.G.nodes) # All modes in hybrid system
+
         # Find possible modes to transition into (constraints that are active)
         possible_new_modes = [mode for mode in self.G.nodes if np.all(np.abs(self.G.nodes[mode]['a'](q)) < 1e-6)]
         
@@ -175,13 +177,17 @@ class HybridSimulator:
             # a = self.G.nodes[mode]['a']
             # a_eval = a(q)
 
-            not_mode = np.setdiff1d(possible_new_modes, [mode]) # Possible new modes that are not the current one we loop on
+            not_mode = np.setdiff1d(possible_new_modes, [mode]) # Possible new modes that are not the current one
             
             if mode in possible_new_modes:
                 ddq, lam = self.solve_EOM(x, mode)
                 ddq_union, lam_union =   self.solve_EOM(x, possible_new_modes)
+
+                
+            else:
+                continue
             
-        
+        return None
         
         # 
         
