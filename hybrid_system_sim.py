@@ -7,7 +7,22 @@ import jax.numpy as jnp
 from jax import jacfwd
 from functools import partial
 
+"""
+x: state variable
+q: generalized coordinates
+dq: generalized velocities
+ddq: generalized accelerations
 
+u: control inputs
+
+G: Hybrid System Graph (Directed Graph)
+- Nodes: Mode (described by tuple of active constraints for the mode, like (0, 1) for contacts 0 and 1 active)
+    - dynamics: f(x, u) continuous time dynamics for the mode
+    - a: list of constraint functions active in the mode
+- Edges: Possible transitions between modes
+    - guard:
+    - reset:
+"""
 class HybridSimulator:
     def __init__(self, G=None):
         """
@@ -19,10 +34,11 @@ class HybridSimulator:
         self.G = G
  
         # Define constraint functions (maps int to contact function)
-        self.contact_functions = {1: ground_constraint} 
+        # self.contact_functions = {1: ground_constraint} 
+        self.contact_functions = [ground_constraint]
 
         # Candidate contact modes (tuples of active contacts described by int)
-        modes = [(), (1,)]
+        modes = [(), (0,)]
         for mode in modes:
             G.add_node(mode)
             G.nodes[mode]['a'] = [self.contact_functions[i] for i in mode]
@@ -30,7 +46,7 @@ class HybridSimulator:
 
         # Dynamics for each mode
         self.G.nodes[()]['dynamics'] = flight_dyn
-        self.G.nodes[(1,)]['dynamics'] = stance_dyn
+        self.G.nodes[(0,)]['dynamics'] = stance_dyn
 
         # Possible transitions
         self.G.add_edge((), (1,), a=ground_constraint)
@@ -43,10 +59,10 @@ class HybridSimulator:
         self.nv = 1  # Number of velocity states
         self.nu = 1  # Number of control inputs
 
-        self.M = [1.0]
-        self.N = np.array([[0.0], [9.81]])
+        self.M = np.array([[1.0]])
+        self.N = np.array([[9.81]])
         self.C = np.array([[0.0]])
-        self.Y = np.array([[1.0]])
+        self.Y = np.array([[0.0]])
 
 
     # def add_mode(self, id, dynamics)e:
@@ -76,13 +92,24 @@ class HybridSimulator:
 
 
         # Compute the block matrix inverse here
-        A = self.compute_A(q, contact_mode)
+        A = self.compute_A(x, contact_mode)
+        A = np.array(A[list(contact_mode), :])
 
         c = A.shape[0]  # Number of constraints
-        M = np.eye(self.nq + self.nv)
+        M = self.M
 
-        block_matrix_inv = np.linalg.inv(np.array([[M, A.T], 
-                                     [A, np.zeros((c, c))]]).inv)
+        test0 = np.array(A.T)
+        test1 = np.block([[M, A.T]])
+        test2 = [A, np.zeros((c, c))]
+        test3 = np.block([[M, A.T], 
+                                     [A, np.zeros((c, c))]])
+
+
+        test4 = np.squeeze(np.block([[M, A.T], 
+                                     [A, np.zeros((c, c))]]))
+        print("test4: ", test4)
+        block_matrix_inv = np.linalg.inv(np.block([[M, A.T], 
+                                     [A, np.zeros((c, c))]]))
 
         return np.linalg.inv(block_matrix_inv)
 
@@ -223,7 +250,7 @@ class HybridSimulator:
         dq = x[self.nq:self.nq+self.nv]
 
         A = self.compute_A(q, contact_mode)
-        dA = self.compute_dA(q, contact_mode)
+        dA = self.compute_dA(x, contact_mode)
 
         c = A.shape[0]
 
@@ -277,12 +304,12 @@ class HybridSimulator:
         
         if contact_mode not in self.G.nodes:
             raise ValueError(f"Dynamics are not defined for contact mode: {contact_mode}")
-        
-        q = x[:self.nq]
-        dq = x[self.nq:self.nq+self.nv]
 
-        A = self.compute_A(q, contact_mode)
-        dA = self.compute_dA(q, contact_mode)
+        q = np.array(x[:self.nq])
+        dq = np.array(x[self.nq:self.nq+self.nv])
+
+        A = self.compute_A(x, contact_mode)
+        dA = self.compute_dA(x, contact_mode)
 
         c = A.shape[0]
 
@@ -300,12 +327,16 @@ class HybridSimulator:
 
         return ddq, lam
     
-    def compute_A(self, q, mode):
+    def compute_A(self, x, mode):
         """
         Returns the constraint Jacobian A for the given mode.
         """
         # a = self.G.nodes[mode]['a'] #
-        a = self.contact_functions.values()
+        # a = jnp.array([fn(q) for fn in self.contact_functions])
+        q = jnp.array(x[:self.nq])
+        dq = jnp.array(x[self.nq:self.nq+self.nv])
+
+        a = self.contact_functions
 
 
 
@@ -313,27 +344,36 @@ class HybridSimulator:
             A = jnp.empty((0, self.nq))
             return A
         else:
-            A = jacfwd(a)(q)
+            def a_fn(q):
+                return jnp.array([fn(q) for fn in a])
+            A = jacfwd(a_fn)(q)
 
-        return A
+        return np.array(A)
     
     def compute_dA(self, x, mode):
         """
         Returns the time derivative of the constraint Jacobian dA for the given mode.
         """
-        q = x[:self.nq]
-        dq = x[self.nq:self.nq+self.nv]
+        q = jnp.array(x[:self.nq])
+        dq = jnp.array(x[self.nq:self.nq+self.nv])
 
-        a = self.G.nodes[mode]['a']
-        a = self.contact_functions.values()
+        # a = self.G.nodes[mode]['a']
+        
+        a = self.contact_functions
+
+
 
         if len(a) == 0:
             dA = jnp.empty((0, self.nq))
-            return dA
+            # return dA
         else:
-            A = jacfwd(a)(q)
-
-        dA = jnp.dot(jacfwd(A)(q), dq) # dA/dt = dA/dq *dq/dt
+            def a_fn(q):
+                A = jnp.array([fn(q) for fn in a])
+                return A
+            
+            # A = jacfwd(a_fn)(q)
+            print(type(jacfwd(a_fn)(q)))
+            dA = jnp.dot(jacfwd(a_fn)(q), dq) # dA/dt = dA/dq *dq/dt
         return dA
 
 # ----------------------
