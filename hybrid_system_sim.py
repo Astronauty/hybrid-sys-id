@@ -98,22 +98,12 @@ class HybridSimulator:
         c = A.shape[0]  # Number of constraints
         M = self.M
 
-        test0 = np.array(A.T)
-        test1 = np.block([[M, A.T]])
-        test2 = [A, np.zeros((c, c))]
-        test3 = np.block([[M, A.T], 
-                                     [A, np.zeros((c, c))]])
-
-
-        test4 = np.squeeze(np.block([[M, A.T], 
-                                     [A, np.zeros((c, c))]]))
-        print("test4: ", test4)
         block_matrix_inv = np.linalg.inv(np.block([[M, A.T], 
                                      [A, np.zeros((c, c))]]))
 
-        return np.linalg.inv(block_matrix_inv)
+        return block_matrix_inv
 
-    def simulate(self, x0, mode0, tf, max_step=1e-5):
+    def simulate(self, x0, mode0, tf, max_step=1e-2, max_iters=100):
         """Simulate the hybrid system.
         
         Args:
@@ -129,7 +119,7 @@ class HybridSimulator:
         t, x, mode = 0.0, x0, mode0
         T, X, M  = [t], [x.copy()], [mode]
         
-        while t < tf:
+        while t < tf or len(T) < max_iters:
             f = self.G.nodes[mode]['dynamics']
             
             # Define guards from the current mode
@@ -141,7 +131,10 @@ class HybridSimulator:
                 event_fn.direction = 0  # or set as needed
                 events.append(event_fn)
             
+            print("here")
             sol = solve_ivp(f, (t, tf), x, method='RK45', events=events, max_step=max_step)
+            print("here1")
+
             
             # Append solution to hybrid trajectory history
             for k in range (1, len(sol.t)):
@@ -151,7 +144,7 @@ class HybridSimulator:
                 
             t, x = sol.t[-1], sol.y[:, -1] # Get the last timestep of the continuous ode
             
-            print(sol.t_events)
+            # print(sol.t_events)
             # Find the contact mode we transition into via IV complementarity
             # if np.any():  # Did an event occur on a contact that is not active?
                 # Determine transition contact mode via IV complementarity if we have a new active constraint
@@ -285,8 +278,11 @@ class HybridSimulator:
 
         ddq, lam = self.solve_EOM(x, contact_mode)
 
+
         ## TODO: assumes 1D impulse
-        constraint_fcns = [a_eval, lam]
+        constraint_fcns = np.concatenate([a_eval.flatten(), lam.flatten()])
+    
+
         return constraint_fcns
 
         # is_terminal = np.ones(len(constraint_fcns), 1)
@@ -311,6 +307,10 @@ class HybridSimulator:
         A = self.compute_A(x, contact_mode)
         dA = self.compute_dA(x, contact_mode)
 
+        # Select rows for current contact mode
+        A = np.array(A[list(contact_mode), :])
+        dA = np.array(dA[list(contact_mode), :])
+
         c = A.shape[0]
 
         N = self.N
@@ -319,8 +319,11 @@ class HybridSimulator:
         Y = self.Y
 
         block_matrix_inv = self.compute_block_matrix_inverse(x, contact_mode)
-        sol = block_matrix_inv @ np.array([[Y - N - C @ dq],
-                                            [-dA @ dq]])
+
+
+
+        sol = block_matrix_inv @ np.block([[Y - N - C @ dq],
+                                            [(-dA @ dq).reshape(-1, 1)]])
 
         ddq = sol[:self.nv] # Accelerations
         lam = sol[self.nv:self.nv+c] # Lagrange multipliers (constraint forces)
@@ -362,7 +365,6 @@ class HybridSimulator:
         a = self.contact_functions
 
 
-
         if len(a) == 0:
             dA = jnp.empty((0, self.nq))
             # return dA
@@ -372,9 +374,10 @@ class HybridSimulator:
                 return A
             
             # A = jacfwd(a_fn)(q)
-            print(type(jacfwd(a_fn)(q)))
-            dA = jnp.dot(jacfwd(a_fn)(q), dq) # dA/dt = dA/dq *dq/dt
-        return dA
+            dA_dq = jnp.atleast_2d(jacfwd(a_fn)(q))
+            dA = jnp.atleast_2d(jnp.dot(dA_dq, dq)) # dA/dt = dA/dq *dq/dt
+
+        return np.array(dA)
 
 # ----------------------
 # Hopper parameters
