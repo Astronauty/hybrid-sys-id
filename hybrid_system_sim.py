@@ -49,10 +49,14 @@ class HybridSimulator:
         self.G.nodes[(0,)]['dynamics'] = stance_dyn
 
         # Possible transitions
-        self.G.add_edge((), (1,), a=ground_constraint)
+        self.G.add_edge((), (0,), a=ground_constraint)
+        self.G.add_edge((0,), (), a=None)
 
-        print(G.nodes(data=True))
 
+        # print(G.nodes(data=True))
+        nx.draw(G, with_labels=True, node_color='lightblue', node_size=2000, font_size=10, font_weight='bold', arrows=True)
+        plt.show()
+        
         ### Based on the constraints a(q), compute the constraint Jacobian A = da/dq and dA = dA/dt for each mode
 
         self.nq = 1  # Number of position states
@@ -281,7 +285,7 @@ class HybridSimulator:
 
         ## TODO: assumes 1D impulse
         constraint_fcns = np.concatenate([a_eval.flatten(), lam.flatten()])
-    
+        print(f"guard_functions: t={t}, x={x}, contact_mode={contact_mode}, constraint_fcns={constraint_fcns}")
 
         return constraint_fcns
 
