@@ -20,8 +20,7 @@ G: Hybrid System Graph (Directed Graph)
     - dynamics: f(x, u) continuous time dynamics for the mode
     - a: list of constraint functions active in the mode
 - Edges: Possible transitions between modes
-    - guard:
-    - reset:
+    - guard: defined based on the constraint functions a(q) between two modes. Used to check for contact conditions and IV/FA complementarity.
 """
 class HybridSimulator:
     def __init__(self, G=None):
@@ -48,9 +47,9 @@ class HybridSimulator:
         self.G.nodes[()]['dynamics'] = flight_dyn
         self.G.nodes[(0,)]['dynamics'] = stance_dyn
 
-        # Possible transitions
-        self.G.add_edge((), (0,), a=ground_constraint)
-        self.G.add_edge((0,), (), a=None)
+        # Define possible mode transitions (edges in graph) and associated guard/reset function
+        self.G.add_edge((), (0,), guard_fcn = lambda t, x: self.guard_functions(t, x, (0,)))
+        self.G.add_edge((0,), (), guard_fcn = lambda t, x: self.guard_functions(t, x, ()))
 
 
         # print(G.nodes(data=True))
@@ -97,6 +96,8 @@ class HybridSimulator:
 
         # Compute the block matrix inverse here
         A = self.compute_A(x, contact_mode)
+
+
         A = np.array(A[list(contact_mode), :])
 
         c = A.shape[0]  # Number of constraints
@@ -120,59 +121,65 @@ class HybridSimulator:
             states (list): List of states over time
             modes (list): List of modes over time
         """
-        t, x, mode = 0.0, x0, mode0
-        T, X, M  = [t], [x.copy()], [mode]
+        t, x, contact_mode = 0.0, x0, mode0
+        T, X, M  = [t], [x.copy()], [contact_mode]
         
         while t < tf or len(T) < max_iters:
-            f = self.G.nodes[mode]['dynamics']
+            f = self.G.nodes[contact_mode]['dynamics']
             
-            # Define guards from the current mode
-            events = []
-            edges = list(self.G.out_edges(mode, data=True))
-            for _, _, edata in edges:
-                event_fn = lambda t, x, mode=mode: self.guard_functions(t, x, mode)
-                event_fn.terminal = True
-                event_fn.direction = 0  # or set as needed
-                events.append(event_fn)
-            
-            print("here")
-            sol = solve_ivp(f, (t, tf), x, method='RK45', events=events, max_step=max_step)
-            print("here1")
+            # Define event functions corresponding to guards we can transition into from the current mode
+            guard_fcns = []
+            edges = list(self.G.out_edges(contact_mode, data=True)) # Possible transitions from current mode
 
+            # for _, _, edata in edges:
+            #     event_fn = lambda t, x, mode=mode: self.guard_functions(t, x, mode)
+            #     event_fn.terminal = True
+            #     event_fn.direction = 0  # or set as needed
+            #     events.append(event_fn)
+
+            # for _, _, edata in edges:
+            #     guard_fcns.append(edata['guard_fcn'])
+
+            guard_fcns = self.make_guard_events(contact_mode)
+
+            sol = solve_ivp(f, (t, tf), x, method='RK45', events=guard_fcns, max_step=max_step)
+            print("here1")
             
             # Append solution to hybrid trajectory history
             for k in range (1, len(sol.t)):
                 T.append(sol.t[k])
                 X.append(sol.y[:, k])
-                M.append(mode)
+                M.append(contact_mode)
                 
-            t, x = sol.t[-1], sol.y[:, -1] # Get the last timestep of the continuous ode
+            t_event, x_event = sol.t[-1], sol.y[:, -1] # Get the last timestep of the continuous ode (corresponding to when the guard was hit)
             
-            # print(sol.t_events)
-            # Find the contact mode we transition into via IV complementarity
-            # if np.any():  # Did an event occur on a contact that is not active?
-                # Determine transition contact mode via IV complementarity if we have a new active constraint
-            
+            # If a guard was triggered by a_i < 0, find the contact mode we transition into via IV complementarity
+            if np.any(guard_fcn(t_event, x_event) <=0 for guard_fcn in guard_fcns):
+                contact_mode = self.complementary_IV(x_event)
+
+                dq_p, p_hat = self.compute_reset_map(x_event, contact_mode)
+                x_event = np.hstack([x_event, p_hat], axis=0)
+
+                print(f"Transitioning to contact mode: {contact_mode} at t={t_event}s, x={x_event}.")
 
             # Check FA complementarity to see if there is liftoff
+            ddq, lam = self.solveEOM(x_event, contact_mode)
 
+            if -lam <= 0:
+                contact_mode = self.complementary_FA(x_event)
+                print(f"Transitioning to contact mode: {contact_mode} at t={t_event}s, x={x_event}.")
 
-            # guard_triggered = [i for i, e in enumerate(sol.t_events) if len(e) > 0] # i corresponds to the event index with the mode we should switch into
-            
-            # if guard_triggered:
-            #     idx = guard_triggered[0]
-            #     next_mode = next_possible_modes[idx]
-            #     reset = edges[idx][2]['reset']
-            #     x = reset(x, t) # Apply reset map
-            #     mode = next_mode
-                
-            #     T.append(t)
-            #     X.append(x)
-            #     M.append(mode)
-                
         return np.array(T), np.vstack(X), M
     
     def complementary_IV(self, x):
+        """Determine new contact mode based on IV complementarity conditions.
+        
+        Args: 
+            x (np.ndarray): Current state
+
+        Returns:
+            new_mode (tuple): New contact mode if transition occurs, else None
+        """
         q = x[:self.nq]
         dq = x[self.nq:self.nq+self.nv]
 
@@ -189,13 +196,22 @@ class HybridSimulator:
         
         # Identify modes where the constraint is active
         possible_new_modes = []
-
         for mode in self.G.nodes:
+            a = self.G.nodes[mode]['a']
+            if a is not None and np.all(np.abs([fn(q) for fn in a]) < 1e-6):
+                possible_new_modes.append(mode)
+
+        # Iterate through contact modes to find one that satisfies IV complementarity
+        for mode in self.G.nodes:
+            not_mode = np.setdiff1d(possible_new_modes, [mode]) # Possible new modes that are not the current one
+
+            if not_mode.size == 0:
+                continue
+            
             a = self.G.nodes[mode]['a']
             a_eval = a(q)
 
             active_con = np.where(abs(a_eval) < 1e-6)[0]
-
     
             if len(active_con) > 0:
                 continue
@@ -207,7 +223,20 @@ class HybridSimulator:
             cond_1 = np.all(p_hat >= 0)  # Non-negative impulses
             cond_2 = np.all(-p_hat)
 
+            if cond_1 and cond_2:
+                return mode # Returns new mode that satisfies IV complementarity
+
     def complementary_FA(self, x):
+        """
+        Determine new contact mode based on FA complementarity conditions.
+
+        Args:
+            x (np.ndarray): Current state
+
+        Returns:
+            new_mode (tuple): New contact mode if transition occurs, else None
+        """
+
         q = x[:self.nq]
         dq = x[self.nq:self.nq+self.nv]
 
@@ -237,11 +266,6 @@ class HybridSimulator:
             
         return None
         
-        # 
-        
-        
-        return
-
     def compute_reset_map(self, x, contact_mode):
         q = x[:self.nq]
         dq = x[self.nq:self.nq+self.nv]
@@ -270,6 +294,14 @@ class HybridSimulator:
         return dq_p, p_hat
         
     def guard_functions(self, t, x, contact_mode):
+        """
+        Compute the guard functions for the given state and contact mode to transition into.
+
+        Args:
+            t (float): Current time
+            x (np.ndarray): Current state
+            contact_mode (tuple): Contact mode to transition to which is used to determine the guard.
+        """
 
         q = x[:self.nq]
         dq = x[self.nq:self.nq+self.nv]
@@ -282,7 +314,6 @@ class HybridSimulator:
 
         ddq, lam = self.solve_EOM(x, contact_mode)
 
-
         ## TODO: assumes 1D impulse
         constraint_fcns = np.concatenate([a_eval.flatten(), lam.flatten()])
         print(f"guard_functions: t={t}, x={x}, contact_mode={contact_mode}, constraint_fcns={constraint_fcns}")
@@ -293,9 +324,33 @@ class HybridSimulator:
         # direction = [[-np.ones(len(a), 1)], [np.ones(len(lam), 1)]]
         # return constraint_fcns, is_terminal, direction
 
+    def make_guard_events(self, contact_mode):
+        """
+        Returns a list of scalar guard event functions suitable for solve_ivp,
+        one for each entry in guard_functions(t, x, contact_mode).
+        """
 
+        # We create one scalar event for each entry of constraint_fcns
+        def make_event(idx):
+            def event_fn(t, x):
+                vals = self.guard_functions(t, x, contact_mode)
+                return vals[idx]
+            event_fn.terminal = True
+            # Direction convention:
+            #  - first len(a) are position-based constraints (touchdown)
+            #  - rest are lambda (force) based (liftoff)
+            num_a = len(self.G.nodes[contact_mode]['a']) if self.G.nodes[contact_mode]['a'] is not None else 0
+            event_fn.direction = -1.0 if idx < num_a else +1.0
+            return event_fn
 
-    def complementary_FA(x):
+        # call guard_functions once to know how many constraints there are
+        dummy_x = np.zeros(self.nq + self.nv)
+        vals = self.guard_functions(0.0, dummy_x, contact_mode)
+        events = [make_event(i) for i in range(len(vals))]
+
+        return events
+
+    def complementary_FA(self, x):
         q = np.array([x[0], x[1], 0.0])
         return q
     
@@ -336,7 +391,7 @@ class HybridSimulator:
     
     def compute_A(self, x, mode):
         """
-        Returns the constraint Jacobian A for the given mode.
+        Returns the constraint Jacobian A for the given mode. Given associated contact functions a(q) in the current mode, computes the Jacobian w.r.t. q.
         """
         # a = self.G.nodes[mode]['a'] #
         # a = jnp.array([fn(q) for fn in self.contact_functions])
@@ -344,8 +399,6 @@ class HybridSimulator:
         dq = jnp.array(x[self.nq:self.nq+self.nv])
 
         a = self.contact_functions
-
-
 
         if len(a) == 0:
             A = jnp.empty((0, self.nq))
