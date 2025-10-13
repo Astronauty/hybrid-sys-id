@@ -8,13 +8,14 @@ from jax import jacfwd
 from functools import partial
 
 """
+A class for simulating hybrid dynamical systems defined as a directed graph.
+
+Variables:
 x: state variable
 q: generalized coordinates
 dq: generalized velocities
 ddq: generalized accelerations
-
 u: control inputs
-
 G: Hybrid System Graph (Directed Graph)
 - Nodes: Mode (described by tuple of active constraints for the mode, like (0, 1) for contacts 0 and 1 active)
     - dynamics: f(x, u) continuous time dynamics for the mode
@@ -97,7 +98,11 @@ class HybridSimulator:
         # Compute the block matrix inverse here
         A = self.compute_A(x, contact_mode)
 
+        if A.shape[0] == 0:
+            # No active constraints, return inverse of M only
+            return np.linalg.inv(self.M)
 
+        # If there are active constraints, select rows corresponding to the current contact mode
         A = np.array(A[list(contact_mode), :])
 
         c = A.shape[0]  # Number of constraints
@@ -201,7 +206,7 @@ class HybridSimulator:
             if a is not None and np.all(np.abs([fn(q) for fn in a]) < 1e-6):
                 possible_new_modes.append(mode)
 
-        # Iterate through contact modes to find one that satisfies IV complementarity
+        # Iterate through all contact modes to find one that satisfies IV complementarity
         for mode in self.G.nodes:
             not_mode = np.setdiff1d(possible_new_modes, [mode]) # Possible new modes that are not the current one
 
@@ -263,7 +268,8 @@ class HybridSimulator:
                     return mode # Returns new mode that satisfies FA complementarity
             else:
                 continue
-            
+        
+        print("No valid contact mode found based on FA complementarity.")
         return None
         
     def compute_reset_map(self, x, contact_mode):
@@ -432,9 +438,9 @@ class HybridSimulator:
             
             # A = jacfwd(a_fn)(q)
             dA_dq = jnp.atleast_2d(jacfwd(a_fn)(q))
-            dA = jnp.atleast_2d(jnp.dot(dA_dq, dq)) # dA/dt = dA/dq *dq/dt
+            dA_dt = jnp.atleast_2d(jnp.dot(dA_dq, dq)) # dA/dt = dA/dq *dq/dt
 
-        return np.array(dA)
+        return np.array(dA_dt)
 
 # ----------------------
 # Hopper parameters
