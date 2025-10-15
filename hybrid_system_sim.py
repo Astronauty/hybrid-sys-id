@@ -90,6 +90,10 @@ class HybridSimulator:
     #     self.G.add_edge(from_node, to_node, guard=guard, reset=reset)
     
     def compute_block_matrix_inverse(self, x, contact_mode):
+        """
+        inv([ M, A^T;
+              A, 0  ])
+        """
         q = x[:self.nq]
         v = x[self.nq:self.nq+self.nv]
         u = x[self.nq+self.nv:self.nq+self.nv+self.nu]
@@ -103,7 +107,8 @@ class HybridSimulator:
             return np.linalg.inv(self.M)
 
         # If there are active constraints, select rows corresponding to the current contact mode
-        A = np.array(A[list(contact_mode), :])
+        A = A[list(contact_mode), :]
+        A = A.reshape(len(contact_mode), -1) # Reshape to guarantee 2D
 
         c = A.shape[0]  # Number of constraints
         M = self.M
@@ -160,8 +165,9 @@ class HybridSimulator:
                 
             t_event, x_event = sol.t[-1], sol.y[:, -1] # Get the last timestep of the continuous ode (corresponding to when the guard was hit)
             
-            # If a guard was triggered by a_i < 0, find the contact mode we transition into via IV complementarity
-            if np.any(guard_fcn(t_event, x_event) <=0 for guard_fcn in guard_fcns):
+            # IV Complementarity: If a guard was triggered by a_i < 0, find the contact mode we transition into 
+            # if np.any(guard_fcn(t_event, x_event) <=0 for guard_fcn in guard_fcns):
+            if sol.status == 1: # Figure out what mode to transition to if an event was triggered
                 contact_mode = self.complementary_IV(x_event)
 
                 dq_p, p_hat = self.compute_reset_map(x_event, contact_mode)
@@ -169,12 +175,15 @@ class HybridSimulator:
 
                 print(f"Transitioning to contact mode: {contact_mode} at t={t_event}s, x={x_event}.")
 
-            # Check FA complementarity to see if there is liftoff
-            ddq, lam = self.solveEOM(x_event, contact_mode)
+            # FA complementarity: See if there is liftoff (positive lambda) contact we need to remove
+            ddq, lam = self.solve_EOM(x_event, contact_mode)
 
             if -lam <= 0:
                 contact_mode = self.complementary_FA(x_event)
                 print(f"Transitioning to contact mode: {contact_mode} at t={t_event}s, x={x_event}.")
+
+            x = x_event
+            t = t_event
 
         return np.array(T), np.vstack(X), M
     
@@ -216,8 +225,9 @@ class HybridSimulator:
                 continue
             
             not_mode = np.setdiff1d(possible_new_modes, [mode]) # Possible new modes that are not the current one
-            if not_mode.size == 0:
-                continue
+            
+            # if not_mode.size == 0:
+            #     continue
             
             # a = self.G.nodes[mode]['a']
             # a_eval = a(q)
@@ -225,16 +235,16 @@ class HybridSimulator:
     
             # if len(active_con) > 0:
             #     continue
+            if mode in possible_new_modes: # Check if the current mode is included in possible modes
+                dq_p, p_hat = self.compute_reset_map(x, [mode])
 
-            dq_p, p_hat = self.compute_reset_map(x, mode)
+                dq_p_union, p_hat_union = self.compute_reset_map(x, possible_new_modes)
 
-            dq_p_union, p_hat_union = self.compute_reset_map(x, possible_new_modes)
+                cond_1 = np.all(-p_hat >= 0)  # Non-negative impulse for the mode we switch into
+                cond_2 = np.all(-p_hat_union[not_mode] < 0)
 
-            cond_1 = np.all(p_hat >= 0)  # Non-negative impulses
-            cond_2 = np.all(-p_hat)
-
-            if cond_1 and cond_2:
-                return mode # Returns new mode that satisfies IV complementarity
+                if cond_1 and cond_2:
+                    return mode # Returns new mode that satisfies IV complementarity
             
         # return ()
         raise ValueError("No valid contact mode found based on IV complementarity.")
@@ -256,8 +266,14 @@ class HybridSimulator:
         modes = list(self.G.nodes) # All modes in hybrid system
 
         # Find possible modes to transition into (constraints that are active)
-        possible_new_modes = [mode for mode in self.G.nodes if np.all(np.abs(self.G.nodes[mode]['a'](q)) < 1e-6)]
+        possible_new_modes = []
+        for mode in self.G.nodes:
+            a = self.G.nodes[mode]['a']
+            if len(a) > 0 and np.all(np.abs([fn(q) for fn in a]) < 1e-6):
+                a_list = np.abs([fn(q) for fn in a])
+                possible_new_modes.append(mode)     
         
+        # Test each contact mode
         for mode in self.G.nodes:
             # a = self.G.nodes[mode]['a']
             # a_eval = a(q)
@@ -270,7 +286,7 @@ class HybridSimulator:
                 ddq_union, lam_union =   self.solve_EOM(x, possible_new_modes)
 
                 cond_1 = np.all(-lam >= 0)
-                cond_2 = np.all(-lam_union(not_mode) <= 0)
+                cond_2 = np.all(-lam_union[not_mode] <= 0)
 
                 if cond_1 and cond_2:
                     return mode # Returns new mode that satisfies FA complementarity
@@ -284,7 +300,7 @@ class HybridSimulator:
         q = x[:self.nq]
         dq = x[self.nq:self.nq+self.nv]
 
-        A = self.compute_A(q, contact_mode)
+        A = self.compute_A(x, contact_mode)
         dA = self.compute_dA(x, contact_mode)
 
         c = A.shape[0]
@@ -296,16 +312,16 @@ class HybridSimulator:
 
         block_matrix_inv = self.compute_block_matrix_inverse(x, contact_mode)
 
-
         # TODO handle different restitution coefficients for different contacts
         e = 0.5  # Coefficient of restitution
-        sol = block_matrix_inv @ np.array([[M @ dq],
+        
+        sol = block_matrix_inv @ np.block([[M @ dq],
                                             [-e * A @ dq]])
 
         dq_p = sol[:self.nv] # Post-impact velocities
         p_hat = sol[self.nv:self.nv+c] # Lagrange multipliers (impulse)
 
-        return np.flatten(dq_p), np.flatten(p_hat)
+        return dq_p.flatten(), p_hat.flatten()
 
     def guard_functions(self, t, x, contact_mode):
         """
@@ -366,10 +382,6 @@ class HybridSimulator:
 
         return events
 
-    def complementary_FA(self, x):
-        q = np.array([x[0], x[1], 0.0])
-        return q
-    
     
     def solve_EOM(self, x, contact_mode):
         
