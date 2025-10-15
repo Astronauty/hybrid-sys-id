@@ -127,7 +127,7 @@ class HybridSimulator:
             modes (list): List of modes over time
         """
         t, x, contact_mode = 0.0, x0, mode0
-        T, X, M  = [t], [x.copy()], [contact_mode]
+        T, X, M  = [t], x.copy(), [contact_mode]
         
         while t < tf or len(T) < max_iters:
             f = self.G.nodes[contact_mode]['dynamics']
@@ -145,7 +145,9 @@ class HybridSimulator:
             # for _, _, edata in edges:
             #     guard_fcns.append(edata['guard_fcn'])
 
-            guard_fcns = self.make_guard_events(contact_mode)
+            # guard_fcns = self.make_guard_events(contact_mode)
+            guard_fcns = [ground_constraint_test]
+            ground_constraint_test.terminal = True
 
             sol = solve_ivp(f, (t, tf), x, method='RK45', events=guard_fcns, max_step=max_step)
             print("here1")
@@ -163,7 +165,7 @@ class HybridSimulator:
                 contact_mode = self.complementary_IV(x_event)
 
                 dq_p, p_hat = self.compute_reset_map(x_event, contact_mode)
-                x_event = np.hstack([x_event, p_hat], axis=0)
+                x_event = np.hstack([x_event, p_hat])
 
                 print(f"Transitioning to contact mode: {contact_mode} at t={t_event}s, x={x_event}.")
 
@@ -203,23 +205,26 @@ class HybridSimulator:
         possible_new_modes = []
         for mode in self.G.nodes:
             a = self.G.nodes[mode]['a']
-            if a is not None and np.all(np.abs([fn(q) for fn in a]) < 1e-6):
+            if len(a) > 0 and np.all(np.abs([fn(q) for fn in a]) < 1e-6):
+                a_list = np.abs([fn(q) for fn in a])
                 possible_new_modes.append(mode)
+                
 
         # Iterate through all contact modes to find one that satisfies IV complementarity
         for mode in self.G.nodes:
+            if mode == ():
+                continue
+            
             not_mode = np.setdiff1d(possible_new_modes, [mode]) # Possible new modes that are not the current one
-
             if not_mode.size == 0:
                 continue
             
-            a = self.G.nodes[mode]['a']
-            a_eval = a(q)
-
-            active_con = np.where(abs(a_eval) < 1e-6)[0]
+            # a = self.G.nodes[mode]['a']
+            # a_eval = a(q)
+            # active_con = np.where(abs(a_eval) < 1e-6)[0]
     
-            if len(active_con) > 0:
-                continue
+            # if len(active_con) > 0:
+            #     continue
 
             dq_p, p_hat = self.compute_reset_map(x, mode)
 
@@ -230,6 +235,9 @@ class HybridSimulator:
 
             if cond_1 and cond_2:
                 return mode # Returns new mode that satisfies IV complementarity
+            
+        # return ()
+        raise ValueError("No valid contact mode found based on IV complementarity.")
 
     def complementary_FA(self, x):
         """
@@ -297,8 +305,8 @@ class HybridSimulator:
         dq_p = sol[:self.nv] # Post-impact velocities
         p_hat = sol[self.nv:self.nv+c] # Lagrange multipliers (impulse)
 
-        return dq_p, p_hat
-        
+        return np.flatten(dq_p), np.flatten(p_hat)
+
     def guard_functions(self, t, x, contact_mode):
         """
         Compute the guard functions for the given state and contact mode to transition into.
@@ -312,8 +320,10 @@ class HybridSimulator:
         q = x[:self.nq]
         dq = x[self.nq:self.nq+self.nv]
 
-        a = self.G.nodes[contact_mode]['a']
-        if a is None:
+        # a = self.G.nodes[contact_mode]['a']
+        a = self.contact_functions # check for potential transitions to all possible modes       
+        
+        if len(a) == 0:
             a_eval = np.array([])
         else:
             a_eval = np.array([fn(q) for fn in a])
@@ -427,7 +437,6 @@ class HybridSimulator:
         
         a = self.contact_functions
 
-
         if len(a) == 0:
             dA = jnp.empty((0, self.nq))
             # return dA
@@ -480,6 +489,10 @@ def ground_constraint(x):
     q = x[0]
     return q - l
 
+def ground_constraint_test(t, x):
+    q = x[0]
+    return q - l
+
 # ----------------------
 # Guards
 # ----------------------
@@ -527,7 +540,7 @@ G = nx.DiGraph()
 # ----------------------
 sim = HybridSimulator()
 x0 = [1.0, 0.0]   # initial height and velocity
-T, X, M = sim.simulate(x0, (), tf=1.0)
+T, X, M = sim.simulate(x0, (), tf=10.0)
 
 print(T)
 print(X)
