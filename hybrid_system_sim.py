@@ -10,6 +10,10 @@ from functools import partial
 """
 A class for simulating hybrid dynamical systems defined as a directed graph.
 
+Holonomic Constraints: a(q, t) = 0
+Modes: Tuples of active holonomic constraints (i.e. (0, 1) means constraints a0=0 and a1=0 for the mode)
+
+
 Variables:
 x: state variable
 q: generalized coordinates
@@ -53,9 +57,9 @@ class HybridSimulator:
         self.G.add_edge((0,), (), guard_fcn = lambda t, x: self.guard_functions(t, x, ()))
 
 
-        # print(G.nodes(data=True))
-        nx.draw(G, with_labels=True, node_color='lightblue', node_size=2000, font_size=10, font_weight='bold', arrows=True)
-        plt.show()
+        ## Visualize the hybrid system graph
+        # nx.draw(G, with_labels=True, node_color='lightblue', node_size=2000, font_size=10, font_weight='bold', arrows=True)
+        # plt.show()
         
         ### Based on the constraints a(q), compute the constraint Jacobian A = da/dq and dA = dA/dt for each mode
 
@@ -91,8 +95,21 @@ class HybridSimulator:
     
     def compute_block_matrix_inverse(self, x, contact_mode):
         """
+        Computes a block matrix inverse 
         inv([ M, A^T;
               A, 0  ])
+
+        Args:
+            x (np.ndarray): Current state
+            contact_mode (tuple): Active contacts, where the tuple corresponds to the indices of the contact functions that are active for the current mode. 
+            Ex.
+            - () : no contacts active
+            - (0, ): contact function 0 active
+            - (1, 2): contact functions 1 and 2 active
+        Returns:
+            block_matrix_inv (np.ndarray): Inverse of the block matrix used to solve the constrained dynamics block equation
+            inv([ M, A^T;
+                  A, 0  ])
         """
         q = x[:self.nq]
         v = x[self.nq:self.nq+self.nv]
@@ -100,14 +117,13 @@ class HybridSimulator:
 
 
         # Compute the block matrix inverse here
-        A = self.compute_A(x, contact_mode)
+        A = self.compute_A(x)
 
-        if A.shape[0] == 0:
+        if len(contact_mode) == 0:
             # No active constraints, return inverse of M only
             return np.linalg.inv(self.M)
 
-        # If there are active constraints, select rows corresponding to the current contact mode
-        A = A[list(contact_mode), :]
+        A = A[list(contact_mode), :] # Select rows for current contact mode
         A = A.reshape(len(contact_mode), -1) # Reshape to guarantee 2D
 
         c = A.shape[0]  # Number of constraints
@@ -131,10 +147,10 @@ class HybridSimulator:
             states (list): List of states over time
             modes (list): List of modes over time
         """
-        t, x, contact_mode = 0.0, x0, mode0
-        T, X, M  = [t], x.copy(), [contact_mode]
+        self.t, self.x, contact_mode = 0.0, x0, mode0
+        T, X, M  = [self.t], [self.x.copy()], [contact_mode]
         
-        while t < tf or len(T) < max_iters:
+        while self.t < tf or len(T) < max_iters:
             f = self.G.nodes[contact_mode]['dynamics']
             
             # Define event functions corresponding to guards we can transition into from the current mode
@@ -151,12 +167,12 @@ class HybridSimulator:
             #     guard_fcns.append(edata['guard_fcn'])
 
             # guard_fcns = self.make_guard_events(contact_mode)
-            guard_fcns = [ground_constraint_test]
-            ground_constraint_test.terminal = True
+            ground_constraint.terminal = True
 
-            sol = solve_ivp(f, (t, tf), x, method='RK45', events=guard_fcns, max_step=max_step)
-            print("here1")
-            
+            guard_fcns = [ground_constraint]
+
+            sol = solve_ivp(f, (self.t, tf), self.x, method='RK45', events=guard_fcns, max_step=max_step)
+
             # Append solution to hybrid trajectory history
             for k in range (1, len(sol.t)):
                 T.append(sol.t[k])
@@ -166,12 +182,16 @@ class HybridSimulator:
             t_event, x_event = sol.t[-1], sol.y[:, -1] # Get the last timestep of the continuous ode (corresponding to when the guard was hit)
             
             # IV Complementarity: If a guard was triggered by a_i < 0, find the contact mode we transition into 
-            # if np.any(guard_fcn(t_event, x_event) <=0 for guard_fcn in guard_fcns):
-            if sol.status == 1: # Figure out what mode to transition to if an event was triggered
+
+
+            num_inactive_constraints = len(self.contact_functions) - len(contact_mode)
+            triggered_constraints = [i for i, t_event in enumerate(sol.t_events) if len(t_event) > 0]
+            IV_trigger = any(i < num_inactive_constraints for i in triggered_constraints)
+            if sol.status == 1 and IV_trigger: # Figure out what mode to transition to if an event was triggered
                 contact_mode = self.complementary_IV(x_event)
 
                 dq_p, p_hat = self.compute_reset_map(x_event, contact_mode)
-                x_event = np.hstack([x_event, p_hat])
+                x_event[self.nq:self.nq+self.nv] = dq_p # Apply post-impact velocities based on reset map
 
                 print(f"Transitioning to contact mode: {contact_mode} at t={t_event}s, x={x_event}.")
 
@@ -179,11 +199,11 @@ class HybridSimulator:
             ddq, lam = self.solve_EOM(x_event, contact_mode)
 
             if -lam <= 0:
-                contact_mode = self.complementary_FA(x_event)
+                contact_mode = self.complementary_FA(t_event, x_event)
                 print(f"Transitioning to contact mode: {contact_mode} at t={t_event}s, x={x_event}.")
 
-            x = x_event
-            t = t_event
+            self.x = x_event
+            self.t = t_event
 
         return np.array(T), np.vstack(X), M
     
@@ -214,8 +234,8 @@ class HybridSimulator:
         possible_new_modes = []
         for mode in self.G.nodes:
             a = self.G.nodes[mode]['a']
-            if len(a) > 0 and np.all(np.abs([fn(q) for fn in a]) < 1e-6):
-                a_list = np.abs([fn(q) for fn in a])
+            if len(a) > 0 and np.all(np.abs([fn(self.t, q) for fn in a]) < 1e-6):
+                a_list = np.abs([fn(self.t, q) for fn in a])
                 possible_new_modes.append(mode)
                 
 
@@ -236,7 +256,9 @@ class HybridSimulator:
             # if len(active_con) > 0:
             #     continue
             if mode in possible_new_modes: # Check if the current mode is included in possible modes
-                dq_p, p_hat = self.compute_reset_map(x, [mode])
+                dq_p, p_hat = self.compute_reset_map(x, mode)
+                # dq_p, p_hat = self.compute_reset_map(x, [mode])
+
 
                 dq_p_union, p_hat_union = self.compute_reset_map(x, possible_new_modes)
 
@@ -257,7 +279,7 @@ class HybridSimulator:
             x (np.ndarray): Current state
 
         Returns:
-            new_mode (tuple): New contact mode if transition occurs, else None
+            new_mode (tuple): New contact mode if transition occurs
         """
 
         q = x[:self.nq]
@@ -267,41 +289,47 @@ class HybridSimulator:
 
         # Find possible modes to transition into (constraints that are active)
         possible_new_modes = []
+        # possible_new_modes.append(()) # Always include the no-contact mode
         for mode in self.G.nodes:
             a = self.G.nodes[mode]['a']
-            if len(a) > 0 and np.all(np.abs([fn(q) for fn in a]) < 1e-6):
-                a_list = np.abs([fn(q) for fn in a])
+            if len(a) == 0 or np.all(np.abs([fn(self.t, q) for fn in a]) < 1e-6):
+                a_list = np.abs([fn(self.t, q) for fn in a])
                 possible_new_modes.append(mode)     
         
+
         # Test each contact mode
         for mode in self.G.nodes:
             # a = self.G.nodes[mode]['a']
             # a_eval = a(q)
 
-            not_mode = np.setdiff1d(possible_new_modes, [mode]) # Possible new modes that are not the current one
-            
+            # not_mode = np.setdiff1d(possible_new_modes, [mode]) # Possible new modes that are not the current one
+            not_mode = [m for m in possible_new_modes if m != mode]  # Possible new modes that are not the current one
+
             if mode in possible_new_modes:
                 ddq, lam = self.solve_EOM(x, mode)
 
-                ddq_union, lam_union =   self.solve_EOM(x, possible_new_modes)
+                union_contacts = tuple(set(contact for mode in possible_new_modes if mode != mode for contact in mode))
+                # ddq_union, lam_union = self.solve_EOM(x, possible_new_modes)
+                ddq_union, lam_union = self.solve_EOM(x, union_contacts)
 
                 cond_1 = np.all(-lam >= 0)
-                cond_2 = np.all(-lam_union[not_mode] <= 0)
+                cond_2 = np.all(-lam_union <= 0)
 
                 if cond_1 and cond_2:
                     return mode # Returns new mode that satisfies FA complementarity
             else:
                 continue
         
-        print("No valid contact mode found based on FA complementarity.")
+        raise RuntimeError("No valid contact mode found based on FA complementarity.")
+        # print("No valid contact mode found based on FA complementarity.")
         return None
         
     def compute_reset_map(self, x, contact_mode):
         q = x[:self.nq]
         dq = x[self.nq:self.nq+self.nv]
 
-        A = self.compute_A(x, contact_mode)
-        dA = self.compute_dA(x, contact_mode)
+        A = self.compute_A(x)
+        dA = self.compute_dA(x)
 
         c = A.shape[0]
 
@@ -384,6 +412,17 @@ class HybridSimulator:
 
     
     def solve_EOM(self, x, contact_mode):
+        """
+        Solves the constrained lagrange dynamics equations for the given state and contact mode
+
+        Args:
+            x (np.ndarray): Current state
+            contact_mode (tuple): Active contacts, where the tuple corresponds to the indices of the contact functions that are active for the current mode. 
+        
+        Returns:
+            ddq (np.ndarray): Generalized accelerations (nv x 1)
+            lam (np.ndarray): Lagrange multipliers (num_constraints x 1)
+        """
         
         if contact_mode not in self.G.nodes:
             raise ValueError(f"Dynamics are not defined for contact mode: {contact_mode}")
@@ -391,8 +430,8 @@ class HybridSimulator:
         q = np.array(x[:self.nq])
         dq = np.array(x[self.nq:self.nq+self.nv])
 
-        A = self.compute_A(x, contact_mode)
-        dA = self.compute_dA(x, contact_mode)
+        A = self.compute_A(x)
+        dA = self.compute_dA(x)
 
         # Select rows for current contact mode
         A = np.array(A[list(contact_mode), :])
@@ -417,10 +456,20 @@ class HybridSimulator:
 
         return ddq, lam
     
-    def compute_A(self, x, mode):
+    
+    # def compute_A(self, x, mode):
+    def compute_A(self, x):
         """
-        Returns the constraint Jacobian A for the given mode. Given associated contact functions a(q) in the current mode, computes the Jacobian w.r.t. q.
+        Returns the constraint Jacobian A = da/dq for every contact function. 
+        
+        Args:
+            x (np.ndarray): Current state
+
+        Returns:
+            A (np.ndarray): Constraint Jacobian matrix (Jacobian of constraints w.r.t. state q). Shape: (num_contacts, nq)
+        Example:
         """
+
         # a = self.G.nodes[mode]['a'] #
         # a = jnp.array([fn(q) for fn in self.contact_functions])
         q = jnp.array(x[:self.nq])
@@ -433,14 +482,20 @@ class HybridSimulator:
             return A
         else:
             def a_fn(q):
-                return jnp.array([fn(q) for fn in a])
+                return jnp.array([fn(self.t, q) for fn in a])
             A = jacfwd(a_fn)(q)
 
         return np.array(A)
     
-    def compute_dA(self, x, mode):
+    # def compute_dA(self, x, mode):
+    def compute_dA(self, x):
         """
         Returns the time derivative of the constraint Jacobian dA for the given mode.
+
+        Args:
+            x (np.ndarray): Current state
+        Returns:
+            dA (np.ndarray): Time derivative of the constraint Jacobian, dA/dt. Shape: (num_contacts, nq)
         """
         q = jnp.array(x[:self.nq])
         dq = jnp.array(x[self.nq:self.nq+self.nv])
@@ -454,7 +509,7 @@ class HybridSimulator:
             # return dA
         else:
             def a_fn(q):
-                A = jnp.array([fn(q) for fn in a])
+                A = jnp.array([fn(self.t, q) for fn in a])
                 return A
             
             # A = jacfwd(a_fn)(q)
@@ -497,11 +552,7 @@ def stance_dyn(t, x):
 # -----------------------
 # def computeA(x)
 
-def ground_constraint(x):
-    q = x[0]
-    return q - l
-
-def ground_constraint_test(t, x):
+def ground_constraint(t, x):
     q = x[0]
     return q - l
 
@@ -551,40 +602,40 @@ G = nx.DiGraph()
 # Simulate
 # ----------------------
 sim = HybridSimulator()
-x0 = [1.0, 0.0]   # initial height and velocity
+x0 = np.array([1.0, 0.0])   # initial height and velocity
 T, X, M = sim.simulate(x0, (), tf=10.0)
 
-print(T)
-print(X)
-print(M)
+# print(T)
+# print(X)
+# print(M)
 
-# ----------------------
-# Plot results
-# ----------------------
-plt.figure(figsize=(10,5))
-plt.plot(T, X[:,0], label="Mass height z(t)")
+# # ----------------------
+# # Plot results
+# # ----------------------
+# plt.figure(figsize=(10,5))
+# plt.plot(T, X[:,0], label="Mass height z(t)")
 
-# Shade stance mode as contiguous intervals
-stance_intervals = []
-in_stance = False
-start_idx = None
-for i in range(len(M)):
-    if M[i] == "stance" and not in_stance:
-        in_stance = True
-        start_idx = i
-    elif M[i] != "stance" and in_stance:
-        in_stance = False
-        stance_intervals.append((start_idx, i))
+# # Shade stance mode as contiguous intervals
+# stance_intervals = []
+# in_stance = False
+# start_idx = None
+# for i in range(len(M)):
+#     if M[i] == "stance" and not in_stance:
+#         in_stance = True
+#         start_idx = i
+#     elif M[i] != "stance" and in_stance:
+#         in_stance = False
+#         stance_intervals.append((start_idx, i))
 
-# Handle case where last mode is stance
-if in_stance:
-    stance_intervals.append((start_idx, len(M)-1))
-for start, end in stance_intervals:
-    plt.axvspan(T[start], T[end], color='orange', alpha=0.2)
+# # Handle case where last mode is stance
+# if in_stance:
+#     stance_intervals.append((start_idx, len(M)-1))
+# for start, end in stance_intervals:
+#     plt.axvspan(T[start], T[end], color='orange', alpha=0.2)
 
-plt.xlabel("Time [s]")
-plt.ylabel("Height [m]")
-plt.title("1-DOF Hopper Hybrid Simulation (Controlled Stance)")
-plt.legend()
-plt.grid(True)
-plt.show()
+# plt.xlabel("Time [s]")
+# plt.ylabel("Height [m]")
+# plt.title("1-DOF Hopper Hybrid Simulation (Controlled Stance)")
+# plt.legend()
+# plt.grid(True)
+# plt.show()

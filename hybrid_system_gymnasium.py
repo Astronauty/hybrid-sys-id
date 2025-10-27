@@ -6,7 +6,7 @@ from hybrid_system_sim import HybridSystemSim
 
 State:
     Fully Observable:
-        - Continuous state (positions, velocities, lambdas)
+        - Continuous state (positions, velocities, lagrange multipliers)
         - Discrete state (contact mode)
 
     Partially Observable (No contacts):
@@ -17,6 +17,7 @@ Action:
     - Control inputs (forces/torques)
 
 
+Step: 
 """
 
 class HybridDynamicsEnv(gym.Env):
