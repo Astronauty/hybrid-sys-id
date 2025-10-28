@@ -182,8 +182,6 @@ class HybridSimulator:
             t_event, x_event = sol.t[-1], sol.y[:, -1] # Get the last timestep of the continuous ode (corresponding to when the guard was hit)
             
             # IV Complementarity: If a guard was triggered by a_i < 0, find the contact mode we transition into 
-
-
             num_inactive_constraints = len(self.contact_functions) - len(contact_mode)
             triggered_constraints = [i for i, t_event in enumerate(sol.t_events) if len(t_event) > 0]
             IV_trigger = any(i < num_inactive_constraints for i in triggered_constraints)
