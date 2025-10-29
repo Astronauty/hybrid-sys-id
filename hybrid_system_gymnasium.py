@@ -1,6 +1,6 @@
 import gymnasium as gym
 from typing import Optional
-from hybrid_system_sim import HybridSystemSim
+from environments.event_driven_hybrid_simulation.hybrid_system_sim import HybridSystemSim
 
 """
 
