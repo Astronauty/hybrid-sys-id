@@ -1,0 +1,47 @@
+{
+  "os":  "Linux-6.8.0-86-generic-x86_64-with-glibc2.35",
+  "python":  "CPython 3.10.18",
+  "startedAt":  "2025-10-31T20:10:29.243297Z",
+  "program":  "/home/aipexws5/daniel/hybrid-sys-id/gymnasium_hybrid_sysid.ipynb",
+  "codePath":  "/home/aipexws5/daniel/hybrid-sys-id/gymnasium_hybrid_sysid.ipynb",
+  "codePathLocal":  "gymnasium_hybrid_sysid.ipynb",
+  "git":  {
+    "remote":  "git@github.com:Astronauty/hybrid-sys-id.git",
+    "commit":  "e186267c3f9df863f5897099a7e05459a12e95ad"
+  },
+  "email":  "dtn2@andrew.cmu.edu",
+  "root":  "/home/aipexws5/daniel/hybrid-sys-id",
+  "host":  "aipexws5-Lambda-Vector",
+  "executable":  "/home/aipexws5/miniconda3/envs/hybrid-sys-id/bin/python",
+  "cpu_count":  24,
+  "cpu_count_logical":  48,
+  "gpu":  "NVIDIA GeForce RTX 5090",
+  "gpu_count":  2,
+  "disk":  {
+    "/":  {
+      "total":  "1967317549056",
+      "used":  "380854190080"
+    }
+  },
+  "memory":  {
+    "total":  "134537224192"
+  },
+  "gpu_nvidia":  [
+    {
+      "name":  "NVIDIA GeForce RTX 5090",
+      "memoryTotal":  "34190917632",
+      "cudaCores":  21760,
+      "architecture":  "Blackwell",
+      "uuid":  "GPU-52f2ff53-b19c-7b42-e2b6-753bfecca5e3"
+    },
+    {
+      "name":  "NVIDIA GeForce RTX 5090",
+      "memoryTotal":  "34190917632",
+      "cudaCores":  21760,
+      "architecture":  "Blackwell",
+      "uuid":  "GPU-53535eee-f443-477f-4371-19a8942ec8cb"
+    }
+  ],
+  "cudaVersion":  "12.8",
+  "writerId":  "q0kmdmjku60n2g66dq63gp6k1cdyt9uj"
+}

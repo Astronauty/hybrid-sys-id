@@ -42,34 +42,33 @@ class ContactForceWrapper(gym.ObservationWrapper):
         foot_forces = np.concatenate(foot_forces).flatten()
 
 
-        transform_GRFs_to_world = True
-        if transform_GRFs_to_world:
-            foot_forces = self._data.xmat @ foot_forces
+        # transform_GRFs_to_world = True
+        # if transform_GRFs_to_world:
+        #     foot_forces = self._data.xmat @ foot_forces
         return np.concatenate([obs, foot_forces])
         # return obs
 
-env = gym.make("Ant-v5")
+# env = gym.make("Ant-v5")
 
-foot_geom_names = ["left_ankle_geom", "right_ankle_geom", "third_ankle_geom", "fourth_ankle_geom"]
-env = ContactForceWrapper(env, foot_geom_names)
-obs, _ = env.reset()
-print("Observation shape:", obs.shape)
+# foot_geom_names = ["left_ankle_geom", "right_ankle_geom", "third_ankle_geom", "fourth_ankle_geom"]
+# env = ContactForceWrapper(env, foot_geom_names)
+# obs, _ = env.reset()
+# print("Observation shape:", obs.shape)
 
+# for i in range(1000):
+#     action = env.action_space.sample() * 0.0
+#     obs, reward, terminated, truncated, info = env.step(action)
 
-for i in range(1000):
-    action = env.action_space.sample() * 0.0
-    obs, reward, terminated, truncated, info = env.step(action)
-
-# Now read foot forces
-print("Augmented observation (last 6 entries are foot forces):", obs[-12:])
-print(env.unwrapped.model.opt.timestep)
-print("Contacts:", len(env.unwrapped.data.contact))
-data = env.unwrapped.data
-model = env.unwrapped.model
-print("ncon:", data.ncon)
-for i in range(int(data.ncon)):
-    c = data.contact[i]
-    print(i, model.geom(c.geom1).name, "<->", model.geom(c.geom2).name)
-print("cfrc_ext shape:", data.cfrc_ext.shape)
-for i in range(model.nbody):
-    print(i, model.body(i).name, data.cfrc_ext[i])
+# # Now read foot forces
+# print("Augmented observation (last 6 entries are foot forces):", obs[-12:])
+# print(env.unwrapped.model.opt.timestep)
+# print("Contacts:", len(env.unwrapped.data.contact))
+# data = env.unwrapped.data
+# model = env.unwrapped.model
+# print("ncon:", data.ncon)
+# for i in range(int(data.ncon)):
+#     c = data.contact[i]
+#     print(i, model.geom(c.geom1).name, "<->", model.geom(c.geom2).name)
+# print("cfrc_ext shape:", data.cfrc_ext.shape)
+# for i in range(model.nbody):
+#     print(i, model.body(i).name, data.cfrc_ext[i])
