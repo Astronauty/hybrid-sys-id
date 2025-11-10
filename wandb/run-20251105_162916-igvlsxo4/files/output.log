@@ -1,0 +1,102 @@
+Using cpu device
+Wrapping the env with a `Monitor` wrapper
+Wrapping the env in a DummyVecEnv.
+Logging to ./logs/ant_ppo/PPO_11
+---------------------------------
+| rollout/           |          |
+|    ep_len_mean     | 91.5     |
+|    ep_rew_mean     | -99      |
+| time/              |          |
+|    fps             | 1473     |
+|    iterations      | 1        |
+|    time_elapsed    | 1        |
+|    total_timesteps | 2048     |
+---------------------------------
+------------------------------------------
+| rollout/                |              |
+|    ep_len_mean          | 68.5         |
+|    ep_rew_mean          | -72.5        |
+| time/                   |              |
+|    fps                  | 1340         |
+|    iterations           | 2            |
+|    time_elapsed         | 3            |
+|    total_timesteps      | 4096         |
+| train/                  |              |
+|    approx_kl            | 0.0023072558 |
+|    clip_fraction        | 0.00166      |
+|    clip_range           | 0.2          |
+|    entropy_loss         | -11.3        |
+|    explained_variance   | 0.000354     |
+|    learning_rate        | 0.0003       |
+|    loss                 | 147          |
+|    n_updates            | 10           |
+|    policy_gradient_loss | -0.00794     |
+|    std                  | 0.998        |
+|    value_loss           | 297          |
+------------------------------------------
+------------------------------------------
+| rollout/                |              |
+|    ep_len_mean          | 92.7         |
+|    ep_rew_mean          | -100         |
+| time/                   |              |
+|    fps                  | 1365         |
+|    iterations           | 3            |
+|    time_elapsed         | 4            |
+|    total_timesteps      | 6144         |
+| train/                  |              |
+|    approx_kl            | 0.0014723402 |
+|    clip_fraction        | 0            |
+|    clip_range           | 0.2          |
+|    entropy_loss         | -11.3        |
+|    explained_variance   | -0.000563    |
+|    learning_rate        | 0.0003       |
+|    loss                 | 131          |
+|    n_updates            | 20           |
+|    policy_gradient_loss | -0.00474     |
+|    std                  | 0.996        |
+|    value_loss           | 263          |
+------------------------------------------
+------------------------------------------
+| rollout/                |              |
+|    ep_len_mean          | 106          |
+|    ep_rew_mean          | -115         |
+| time/                   |              |
+|    fps                  | 1381         |
+|    iterations           | 4            |
+|    time_elapsed         | 5            |
+|    total_timesteps      | 8192         |
+| train/                  |              |
+|    approx_kl            | 0.0013018702 |
+|    clip_fraction        | 4.88e-05     |
+|    clip_range           | 0.2          |
+|    entropy_loss         | -11.3        |
+|    explained_variance   | -0.00553     |
+|    learning_rate        | 0.0003       |
+|    loss                 | 148          |
+|    n_updates            | 30           |
+|    policy_gradient_loss | -0.00374     |
+|    std                  | 0.994        |
+|    value_loss           | 298          |
+------------------------------------------
+------------------------------------------
+| rollout/                |              |
+|    ep_len_mean          | 123          |
+|    ep_rew_mean          | -132         |
+| time/                   |              |
+|    fps                  | 1396         |
+|    iterations           | 5            |
+|    time_elapsed         | 7            |
+|    total_timesteps      | 10240        |
+| train/                  |              |
+|    approx_kl            | 0.0011518607 |
+|    clip_fraction        | 4.88e-05     |
+|    clip_range           | 0.2          |
+|    entropy_loss         | -11.3        |
+|    explained_variance   | -0.00875     |
+|    learning_rate        | 0.0003       |
+|    loss                 | 167          |
+|    n_updates            | 40           |
+|    policy_gradient_loss | -0.00384     |
+|    std                  | 0.992        |
+|    value_loss           | 336          |
+------------------------------------------

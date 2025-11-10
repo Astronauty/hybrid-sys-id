@@ -1,0 +1,17 @@
+{"time":"2025-11-05T16:29:16.761666276-05:00","level":"INFO","msg":"stream: starting","core version":"0.22.3"}
+{"time":"2025-11-05T16:29:16.96189321-05:00","level":"INFO","msg":"stream: created new stream","id":"igvlsxo4"}
+{"time":"2025-11-05T16:29:16.961941914-05:00","level":"INFO","msg":"handler: started","stream_id":"igvlsxo4"}
+{"time":"2025-11-05T16:29:16.962008865-05:00","level":"INFO","msg":"stream: started","id":"igvlsxo4"}
+{"time":"2025-11-05T16:29:16.962023207-05:00","level":"INFO","msg":"writer: started","stream_id":"igvlsxo4"}
+{"time":"2025-11-05T16:29:16.962023637-05:00","level":"INFO","msg":"sender: started","stream_id":"igvlsxo4"}
+{"time":"2025-11-05T16:29:28.038659554-05:00","level":"WARN","msg":"tensorboard: no root directory","error":"timed out after 10s"}
+{"time":"2025-11-05T16:29:28.038718433-05:00","level":"INFO","msg":"tensorboard: tracking new log directory","rootDir":{},"logDir":"LocalOrCloudPath(LocalPath=\"/home/aipexws5/daniel/hybrid-sys-id/logs/ant_ppo/PPO_11\")","namespace":""}
+{"time":"2025-11-05T16:29:28.042381909-05:00","level":"INFO","msg":"tensorboard: saving file","fileLocation":"/home/aipexws5/daniel/hybrid-sys-id/logs/ant_ppo/PPO_11/events.out.tfevents.1762378158.aipexws5-Lambda-Vector.1215129.0","runPath":"logs/ant_ppo/PPO_11/events.out.tfevents.1762378158.aipexws5-Lambda-Vector.1215129.0"}
+{"time":"2025-11-05T16:29:28.043104133-05:00","level":"INFO","msg":"flowcontrol: backed up, offloading to disk","recordNumber":115}
+{"time":"2025-11-05T16:29:28.044574809-05:00","level":"INFO","msg":"flowcontrol: unblocked","totalOffloaded":72}
+{"time":"2025-11-05T16:29:33.053809453-05:00","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed"}
+{"time":"2025-11-05T16:29:33.141388804-05:00","level":"INFO","msg":"handler: operation stats","stats":{}}
+{"time":"2025-11-05T16:29:33.144309075-05:00","level":"INFO","msg":"stream: closing","id":"igvlsxo4"}
+{"time":"2025-11-05T16:29:33.14431874-05:00","level":"INFO","msg":"handler: closed","stream_id":"igvlsxo4"}
+{"time":"2025-11-05T16:29:33.144355986-05:00","level":"INFO","msg":"sender: closed","stream_id":"igvlsxo4"}
+{"time":"2025-11-05T16:29:33.144364689-05:00","level":"INFO","msg":"stream: closed","id":"igvlsxo4"}

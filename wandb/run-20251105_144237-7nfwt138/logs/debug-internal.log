@@ -1,0 +1,15 @@
+{"time":"2025-11-05T14:42:37.403413096-05:00","level":"INFO","msg":"stream: starting","core version":"0.22.3"}
+{"time":"2025-11-05T14:42:37.574589204-05:00","level":"INFO","msg":"stream: created new stream","id":"7nfwt138"}
+{"time":"2025-11-05T14:42:37.574638679-05:00","level":"INFO","msg":"handler: started","stream_id":"7nfwt138"}
+{"time":"2025-11-05T14:42:37.574761255-05:00","level":"INFO","msg":"stream: started","id":"7nfwt138"}
+{"time":"2025-11-05T14:42:37.574781836-05:00","level":"INFO","msg":"writer: started","stream_id":"7nfwt138"}
+{"time":"2025-11-05T14:42:37.574784921-05:00","level":"INFO","msg":"sender: started","stream_id":"7nfwt138"}
+{"time":"2025-11-05T14:42:47.842915312-05:00","level":"WARN","msg":"tensorboard: no root directory","error":"timed out after 10s"}
+{"time":"2025-11-05T14:42:47.842972979-05:00","level":"INFO","msg":"tensorboard: tracking new log directory","rootDir":{},"logDir":"LocalOrCloudPath(LocalPath=\"/home/aipexws5/daniel/hybrid-sys-id/logs/ant_ppo/PPO_8\")","namespace":""}
+{"time":"2025-11-05T14:42:47.843119071-05:00","level":"INFO","msg":"tensorboard: saving file","fileLocation":"/home/aipexws5/daniel/hybrid-sys-id/logs/ant_ppo/PPO_8/events.out.tfevents.1762371757.aipexws5-Lambda-Vector.127230.8","runPath":"logs/ant_ppo/PPO_8/events.out.tfevents.1762371757.aipexws5-Lambda-Vector.127230.8"}
+{"time":"2025-11-05T14:42:48.124477943-05:00","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed"}
+{"time":"2025-11-05T14:42:48.262205133-05:00","level":"INFO","msg":"handler: operation stats","stats":{}}
+{"time":"2025-11-05T14:42:48.265113763-05:00","level":"INFO","msg":"stream: closing","id":"7nfwt138"}
+{"time":"2025-11-05T14:42:48.265123387-05:00","level":"INFO","msg":"handler: closed","stream_id":"7nfwt138"}
+{"time":"2025-11-05T14:42:48.265153543-05:00","level":"INFO","msg":"sender: closed","stream_id":"7nfwt138"}
+{"time":"2025-11-05T14:42:48.265156948-05:00","level":"INFO","msg":"stream: closed","id":"7nfwt138"}
